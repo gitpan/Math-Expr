@@ -30,12 +30,25 @@
 
 package Math::Expr::FormulaDB;
 use strict;
+use Math::Expr;
 
 require Math::Expr::Rule;
 
 sub new {
   my $self = bless {}, shift;
   $self->Load(shift);
+	my $db;
+	my ($vl, $hl);
+
+	foreach ($self->Keys) {
+    $db=$self->Get($_);
+		$vl=Parse($db->{'vl'}); $vl=$vl->Simplify;
+		$hl=Parse($db->{'hl'}); $hl=$hl->Simplify;
+
+		$db->{'for'}= new Math::Expr::Rule($vl, $hl);
+		$db->{'back'}= new Math::Expr::Rule($hl, $vl);
+	}
+
   $self;
 }
 
@@ -90,21 +103,6 @@ sub Get {
 	$self->{'opps'}{$a};
 }
 
-sub InitDB {
-	my ($self, $p)=@_;
-	my $db;
-	my ($vl, $hl);
-
-	foreach ($self->Keys) {
-    $db=$self->Get($_);
-		$vl=$p->Parse($db->{'vl'}); $vl->Simplify;
-		$hl=$p->Parse($db->{'hl'}); $hl->Simplify;
-
-		$db->{'for'}= new Math::Expr::Rule($vl, $hl);
-		$db->{'back'}= new Math::Expr::Rule($hl, $vl);
-	}
-}
-
 sub Find {
   my ($self, $e, $t) = @_;
   my $db;
@@ -130,15 +128,15 @@ sub Find {
 }
 
 sub ApplyProof {
-	my ($self, $key, $p) = @_;
+	my ($self, $key) = @_;
 	my %vars;
 	my $db=$self->Get($key);
 	my $res="";
 	my $prev="";
 
 	if (defined $db->{'b'}) {
-		$vars{'vl'}=$p->Parse($db->{'vl'}); 	
-		$vars{'hl'}=$p->Parse($db->{'hl'}); 	
+		$vars{'vl'}=Parse($db->{'vl'}); 	
+		$vars{'hl'}=Parse($db->{'hl'}); 	
 
 		$res.=$vars{'hl'}->toText;
 		$vars{'hl'}->Simplify;
@@ -156,7 +154,7 @@ sub ApplyProof {
 					my $a=$1; my $b=$2;
 					print "Pre: $a<=>$b\n";
 					$pre=new Math::Expr::VarSet;
-					$pre->Set($a, $p->Parse($b));
+					$pre->Set($a, Parse($b));
 				} else {
 					$pre=undef;
 				}

@@ -6,9 +6,10 @@
 BEGIN { $| = 1; print "Compilation 1..1\n"; }
 END {print "not ok 1\n" unless $loaded;}
 
-require Math::Expr;
 require Math::Expr::Rule;
 require Math::Expr::FormulaDB;
+use Math::Expr;
+require Math::Expr::OpperationDB;
 
 $loaded = 1;
 print "ok 1\n";
@@ -53,10 +54,10 @@ $parse=[
 
 print "Parse 0.." . $#{$parse} . "\n";
 
-$p=new Math::Expr(new Math::Expr::OpperationDB('db/Opperations/Realtal'));
+SetOppDB(new Math::Expr::OpperationDB('db/Opperations/Realtal'));
 
 for ($i=0; $i<= $#{$parse}; $i++) {
-	$e=$p->Parse($parse->[$i][0]);
+	$e=Parse($parse->[$i][0]);
 	$a=$e->tostr;
 	$b=$e->toText;
 	$c="<math>".$e->toMathML."</math>";
@@ -72,7 +73,9 @@ $rule = [
 					'+(*(a:Real,d:Real),*(d:Real,neg(b:Real)))'],
 				 ['(i+j)*k','i*k+j*k','(a-b-c)*d',
 					'+(*(+(a:Real,neg(b:Real)),d:Real),*(d:Real,neg(c:Real)))§§+(*(+(a:Real,neg(c:Real)),d:Real),*(d:Real,neg(b:Real)))§§+(*(+(neg(b:Real),neg(c:Real)),d:Real),*(a:Real,d:Real))'],
+
 				 ['a*a','a^2','b*b','^(b:Real,2)'],
+				 ['a*a','a^2','2*2','^(2,2)'],
 				 ['a*a','a^2','(a+b)*(b+a)','^(+(a:Real,b:Real),2)'],
 				 ['inv(c)*inv(d)', 'inv(a*b)', 'inv(a)*inv(b)*c', 
 					'*(c:Real,inv(*(a:Real,b:Real)))'],
@@ -85,11 +88,12 @@ $rule = [
 				];
 
 print "Applying rules 0.." . $#{$rule} . "\n";
+
 for ($i=0; $i<= $#{$rule}; $i++) {
-	$f=$p->Parse($rule->[$i][0]); $f->Simplify;
-	$t=$p->Parse($rule->[$i][1]); $t->Simplify;
-	$e=$p->Parse($rule->[$i][2]); $e->Simplify;
-	
+	$f=Parse($rule->[$i][0]); $f=$f->Simplify;
+	$t=Parse($rule->[$i][1]); $t=$t->Simplify;
+	$e=Parse($rule->[$i][2]); $e=$e->Simplify;
+
 	$r=new Math::Expr::Rule($f, $t);
 	$str="";
 

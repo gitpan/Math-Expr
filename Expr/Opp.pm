@@ -51,8 +51,16 @@
 =cut
 
 package Math::Expr::Opp;
-require Math::Expr::MatchSet;
 use strict;
+
+use Math::Expr qw ($Pri $OppDB);
+require Math::Expr::MatchSet;
+require Math::Expr::Node;
+require Math::Expr::VarSet;
+use vars qw(@ISA);
+
+use Math::Expr::Node;
+@ISA = qw(Math::Expr::Node);
 
 =head2 $e=new  Math::Expr::Opp($name,$db)
 
@@ -63,12 +71,14 @@ use strict;
 =cut
 
 sub new {
-	my($class, $val, $db) = @_;
+	my($class, $val) = @_;
 	my $self = bless { }, $class;
 
-	$self->{'Type'}="Opp";
+  if (!ref $OppDB || !ref $Pri) {
+    warn "OppDB not initiated, please set it using SetOppDB(...)";
+  }
+
 	$self->{'Val'}=$val;
-	$self->{'oppdb'}=$db;
 	$self->Breakable(0);
 
 	$self;
@@ -84,6 +94,13 @@ sub new {
 sub SetOpp {
 	my ($self, $i, $val) = @_;
 
+	# Sanity checks
+	defined $i || warn "Bad param i.";
+	$val->isa("Math::Expr::Node") || warn "Bad param val: $val";
+	!$self->InTable || warn "Can't edit items in the table";
+
+	delete $self->{'Op'};
+
 	$self->{'Opps'}[$i]=$val;
 }
 
@@ -95,6 +112,9 @@ sub SetOpp {
 
 sub Opp {
 	my ($self, $i) = @_;
+
+	# Sanity checks
+	defined $i || warn "Bad param i.";
 
 	$self->{'Opps'}[$i];
 }
@@ -151,16 +171,24 @@ sub strtype {
 
 =cut
 
+sub op {
+	my ($self, $force)=@_;
+	if ($force || !$self->{'Op'}) {
+		$self->{'Op'}=$OppDB->Find($self->DBType);
+	}
+	return $self->{'Op'};
+}
+
 sub Simplify {
   my ($self)=@_;
 	my $i;
 	my $op;
 
   for ($i=0; $i<=$#{$self->{'Opps'}}; $i++) {
-    $self->{'Opps'}[$i]->Simplify;
+		$self->{'Opps'}[$i]=$self->{'Opps'}[$i]->Simplify;
   }
 
-	$op=$self->{'oppdb'}->Find($self->DBType);
+	$op=$self->op(1);
 
 	# Type specific simplification rules
 	if ($op->{'simp'}) {
@@ -179,7 +207,7 @@ sub Simplify {
 		foreach (keys %{$e}) {
 			$self->{$_}=$e->{$_};
 		}
-		$op=$self->{'oppdb'}->Find($self->DBType);
+		$op=$self->op(1);
 	}
 
 	# (a+b)+c => a+b+c
@@ -202,8 +230,10 @@ sub Simplify {
 		my @nopp = sort {$a->tostr cmp $b->tostr} @{$self->{'Opps'}};
 		$self->{'Opps'}=\@nopp;
 	}
-
+	delete $self->{'Op'};
+	return $self->IntoTable;
 }
+
 
 =head2 $n->BaseType
 
@@ -217,7 +247,7 @@ sub BaseType {
 	my $op;
 	my $str=$self->DBType;
 
-	$op= $self->{'oppdb'}->Find($str);
+	$op= $self->op;
 	if ($op) {$str=$op->{'out'}}
 
 	$str;
@@ -256,22 +286,19 @@ sub power {
 
 =cut
 
-sub SubMatch {
+sub _SubMatch {
   my ($self, $rule, $mset) = @_;
-	my $op=$self->{'oppdb'}->Find($self->DBType);
+	my $op=$self->op;
 
-	# Parameter sanity checks
-	$rule->isa("Math::Expr::Opp") || 
-	$rule->isa("Math::Expr::Num") || 
-  $rule->isa("Math::Expr::Var") || warn "Bad param rule: $rule";
-	$mset->isa("Math::Expr::MatchSet") || warn "Bad param mset: $mset";
+	$self->InTable || warn "self not in table!";
+	$rule->InTable || warn "rule not in table!";
 
-	if ($rule->{'Type'} eq 'Var' && 
+	if ($rule->isa('Math::Expr::Var') && 
 			$rule->BaseType eq $self->BaseType
 		 ) {
 		return $mset->SetAll($rule->{'Val'},$self);
   }
-  elsif ($rule->{'Type'} eq 'Opp' &&
+  elsif ($rule->isa('Math::Expr::Opp') &&
 				 $rule->{'Val'} eq $self->{'Val'}) {
 		if ($op->{'ass'}) {
 			if ($op->{'com'}) {
@@ -289,7 +316,7 @@ sub SubMatch {
 
 				for ($i=1; $i<$ps; $i++) {
 					for ($j=0; $j<$p; $j++) {
-						$part[$j]=new Math::Expr::Opp($self->{'Val'},$self->{'oppdb'});
+						$part[$j]=new Math::Expr::Opp($self->{'Val'});
 						$pcnt[$j]=0;
 					}
 					$cnt=0;
@@ -310,6 +337,7 @@ sub SubMatch {
             if (!defined $part[$j]->{'Opps'}[1]) {
               $part[$j]=$part[$j]->{'Opps'}[0];
             }
+						$part[$j]=$part[$j]->IntoTable;
           }
 #					print "\n";
 
@@ -364,11 +392,14 @@ sub SubMatch {
 
 =cut
 
-sub Match {
+sub _Match {
   my ($self, $rule, $pos, $pre) = @_;
 	my $i;
 	my $mset = new Math::Expr::MatchSet;
-	my $op=$self->{'oppdb'}->Find($self->DBType);
+	my $op=$self->op;
+
+	$self->InTable || warn "self not in table!";
+	$rule->InTable || warn "rule not in table!";
 
 	if (!defined $pos) {$pos="";}
 	if (!defined $pre) {$pre=new Math::Expr::VarSet}
@@ -381,7 +412,7 @@ sub Match {
 	if ($pos ne "") {$pos .=","}
 
 	for ($i=0; $i<=$#{$self->{'Opps'}}; $i++) {
-		my $m=$self->SubExpr($i)->Match($rule, "$pos$i", $pre->Copy);
+		my $m=$self->SubExpr($i)->IntoTable->Match($rule, "$pos$i", $pre->Copy);
 		$mset->Insert($m);
 	}
 
@@ -391,14 +422,18 @@ sub Match {
 sub SubOpp {
   my ($self, $a,$b) = @_;
   my $i;
-  my $o= new Math::Expr::Opp($self->{'Val'},$self->{'oppdb'});
+  my $o= new Math::Expr::Opp($self->{'Val'});
+
+	# Sanity checks
+	defined $a|| warn("Bad param a.");
+	defined $b|| warn("Bad param b.");
 
   if ($a==$b) {return $self->{'Opps'}[$a]}
 
   for ($i=$a; $i<=$b; $i++) {
     $o->SetOpp($i-$a,$self->{'Opps'}[$i]);
   }
-  $o;
+  return $o->IntoTable;
 }
 
 =head2 $n->Subs($vars)
@@ -407,11 +442,10 @@ sub SubOpp {
 
 =cut
 
-sub Subs {
+sub _Subs {
 	my ($self, $vars) = @_;
 	my $i;
-	my $n = new Math::Expr::Opp($self->{'Val'},$self->{'oppdb'});
-	$n->SetPri($self->{'Pri'});
+	my $n = new Math::Expr::Opp($self->{'Val'});
 
   for ($i=0; $i<=$#{$self->{'Opps'}}; $i++) {
 		$n->{'Opps'}[$i]=$self->{'Opps'}[$i]->Subs($vars);
@@ -425,15 +459,14 @@ Returns a copy of this object.
 
 =cut
 
-sub Copy {
+sub _Copy {
 	my $self = shift;
-	my $n = new Math::Expr::Opp($self->{'Val'}, $self->{'oppdb'});
+	my $n = new Math::Expr::Opp($self->{'Val'});
 	my $i;
 
   for ($i=0; $i<=$#{$self->{'Opps'}}; $i++) {
 		$n->{'Opps'}[$i]=$self->{'Opps'}[$i]->Copy;
 	}
-	$n->SetPri($self->{'Pri'});
 	$n;
 }
 
@@ -445,7 +478,7 @@ sub Copy {
 
 =cut
 
-sub Breakable {
+sub _Breakable {
   my $self=shift;
   my $val=shift;
 
@@ -463,6 +496,9 @@ sub Breakable {
 sub Find {
   my ($self, $pos) = @_;
 
+	# Sanity checks
+	defined $pos || warn "Bad param pos.";
+
   if ($pos =~ s/^(\d+),?//) {
 		return $self->SubExpr($1)->Find($pos);
   } else {
@@ -472,14 +508,24 @@ sub Find {
 
 sub SubExpr {
   my ($self, $pos, $rest) = @_;
-	my $op=$self->{'oppdb'}->Find($self->DBType);
+	my $op=$self->op;
+
+	# Sanity checks
+	defined $pos || warn "Bad param pos.";
+	if (ref $rest) {
+		$rest->isa("Math::Expr::Opp") || warn "Bad param rest: $rest";
+		!$rest->InTable || warn "Can't edit items in the table";
+	} 
+  elsif(defined  $rest) {
+    warn "Bad param rest: $rest";
+  }
 
 	if ($op->{'ass'} && $op->{'com'}) {
 		my ($part, $j);
 		my $cnt=0;
     my $rcnt=0;
 			
-    $part=new Math::Expr::Opp($self->{'Val'},$self->{'oppdb'});
+    $part=new Math::Expr::Opp($self->{'Val'});
 
 		for($j=0; $j<=$#{$self->{'Opps'}}; $j++) {
 		  if ($j!=$pos) {
@@ -493,7 +539,7 @@ sub SubExpr {
 		}
 
     if (!defined $part->{'Opps'}[1]) {$part=$part->{'Opps'}[0];}
-    return $part;
+    return $part; #->IntoTable;
   } else {
     return $self->{'Opps'}[$pos];
   }
@@ -505,10 +551,10 @@ sub SubExpr {
 
 =cut
 
-sub Set {
+sub _Set {
   my ($self, $pos, $val) = @_;
-	my $op=$self->{'oppdb'}->Find($self->DBType);
-	
+	my $op=$self->op;
+
 	$pos =~ s/\(\d+\)//g;
 
 	if ($pos eq "") {
@@ -518,13 +564,9 @@ sub Set {
 		my $i=$1;
 
 		if ($op->{'ass'} && $op->{'com'}) {
-			my $rest=new Math::Expr::Opp($self->{'Val'},$self->{'oppdb'});
+			my $rest=new Math::Expr::Opp($self->{'Val'});
 	    my $part=$self->SubExpr($i, $rest)->Set($pos,$val);
-			my $n=new Math::Expr::Opp($self->{'Val'}, $self->{'oppdb'});
-
-			$n->SetPri($self->{'Pri'});
-			$part->SetPri($self->{'Pri'});
-			$rest->SetPri($self->{'Pri'});
+			my $n=new Math::Expr::Opp($self->{'Val'});
 
 			if (!defined $rest->{'Opps'}[1]) {$rest=$rest->{'Opps'}[0];}
 
@@ -538,21 +580,21 @@ sub Set {
 	}
 }
 
-sub toMathML {
+sub _toMathML {
 	my $self = shift;
 	my @p;
 	my $i;
-	my $op =	$self->{'oppdb'}->Find($self->DBType);
+	my $op = $self->op;
 
   for ($i=0; $i<=$#{$self->{'Opps'}}; $i++) {
 		$p[$i]=$self->{'Opps'}[$i]->toMathML;
 		if (!defined $op->{'noparammathml'} || !eval($op->{'noparammathml'})) {
-			if ($self->{'Opps'}[$i]{'Type'} eq 'Opp') {
+			if ($self->{'Opps'}[$i]->isa('Math::Expr::Opp')) {
 				if (!$op->{'ass'} || $self->{'Opps'}[$i]{'Val'} ne $self->{'Val'}) {
-					if (defined $self->{'Pri'}{$self->{'Val'}} &&
-							defined $self->{'Pri'}{$self->{'Opps'}[$i]{'Val'}}) {
-						if ($self->{'Pri'}{$self->{'Val'}} >= 
-								$self->{'Pri'}{$self->{'Opps'}[$i]{'Val'}}) {
+					if (defined $Pri->{$self->{'Val'}} &&
+							defined $Pri->{$self->{'Opps'}[$i]{'Val'}}) {
+						if ($Pri->{$self->{'Val'}} >= 
+								$Pri->{$self->{'Opps'}[$i]{'Val'}}) {
 							$p[$i]='<mrow><mo fence="true">(</mo>'.$p[$i].
 								'<mo fence="true">)</mo></mrow>';
 						}
@@ -579,18 +621,16 @@ sub toText {
 	my $self = shift;
 	my @p;
 	my $i;
-	my $op =	$self->{'oppdb'}->Find($self->DBType);
-
-#	print $self->{'oppdb'} . ", " . $self->{'Pri'} . "\n";
+	my $op =	$self->op;
 
   for ($i=0; $i<=$#{$self->{'Opps'}}; $i++) {
 		$p[$i]=$self->{'Opps'}[$i]->toText;
-		if ($self->{'Opps'}[$i]{'Type'} eq 'Opp') {
+		if ($self->{'Opps'}[$i]->isa('Math::Expr::Opp')) {
 			if (!$op->{'ass'} || $self->{'Opps'}[$i]{'Val'} ne $self->{'Val'}) {
-				if (defined $self->{'Pri'}{$self->{'Val'}} &&
-						defined $self->{'Pri'}{$self->{'Opps'}[$i]{'Val'}}) {
-					if ($self->{'Pri'}{$self->{'Val'}} >= 
-							$self->{'Pri'}{$self->{'Opps'}[$i]{'Val'}}) {
+				if (defined $Pri->{$self->{'Val'}} &&
+						defined $Pri->{$self->{'Opps'}[$i]{'Val'}}) {
+					if ($Pri->{$self->{'Val'}} >= 
+							$Pri->{$self->{'Opps'}[$i]{'Val'}}) {
 						$p[$i]='('.$p[$i].')';
 					}
 				}
@@ -602,15 +642,6 @@ sub toText {
 		join ($self->{'Val'}, @p);
 	} else {
 		$self->{'Val'}.'('.join (", ", @p).')'
-	}
-}
-
-sub SetPri {
-	my ($self, $pri) = @_;
-
-	$self->{'Pri'}=$pri;
-	foreach (@{$self->{'Opps'}}) {
-		$_->SetPri($pri);
 	}
 }
 

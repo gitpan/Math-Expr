@@ -44,6 +44,10 @@
 package Math::Expr::Num;
 use strict;
 
+use Math::Expr::Node;
+use vars qw(@ISA);
+@ISA = qw(Math::Expr::Node);
+
 =head2 $n=new Math::Expr::Num($num)
 
   Creates a new representation of the number $num.
@@ -54,7 +58,6 @@ sub new {
 	my($class, $val) = @_;
 	my $self = bless { }, $class;
 
-	$self->{'Type'}="Num";
 	$self->{'Val'}=$val;
 	$self;
 }
@@ -78,53 +81,22 @@ sub strtype {
 
 sub BaseType {shift->strtype(@_)}
 
-sub Simplify {}
-
-sub SetPri {}
-
-sub Subs {shift;}
-
-sub Breakable{}
-
-sub toMathML {
+sub _toMathML {
   my $self = shift;
   "<mn>".$self->{'Val'}."</mn>";
 }
 
-sub Set {
-  my ($self, $pos, $val)=@_;
-  
-  if ($pos ne "") {warn "Bad pos: $pos"}
-  $val;
-}
-
-
-sub Match {
-  my ($self, $rule,$pos,$pri) = @_;
-	my $mset=new Math::Expr::MatchSet;
-
-	if (!defined $pri) {$pri=new Math::Expr::VarSet}
-
-	$mset->Set($pos, $pri);
-	if (!$self->SubMatch($rule, $mset)) {
-		$mset->del($pos);
-	}
-	$mset;
-}
 
 sub SubMatch {
 	my ($self, $rule, $mset) = @_;
 
-	# Parameter sanity checks
-	$rule->isa("Math::Expr::Opp") || 
-	$rule->isa("Math::Expr::Num") || 
-	$rule->isa("Math::Expr::Var") || warn "Bad param rule: $rule";
-	$mset->isa("Math::Expr::MatchSet") || warn "Bad param mset: $mset";
-
-  if ($rule->{'Type'} eq "Num" && $self->BaseType eq $rule->BaseType) {
+  if ($rule->isa('Math::Expr::Var') && $self->BaseType eq $rule->BaseType) {
 		$mset->SetAll($rule->{'Val'},$self);
 		return 1;
 	}
+  if ($rule->isa('Math::Expr::Num') && $self->BaseType eq $rule->BaseType) {
+	return 1;
+  }
 	return 0;
 }
 
@@ -134,7 +106,7 @@ Returns a new copy of itself.
 
 =cut
 
-sub Copy {
+sub _Copy {
 	my $self= shift;
 
 	new Math::Expr::Num($self->{'Val'});

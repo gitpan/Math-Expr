@@ -1,9 +1,4 @@
 * Move common DB handling code to a superclass used by all db objects
-* Create a super class for all the Opp/Var/Num calsses that does the
-  typechecking on all the methods and maby some default actions.
-* Make pri and oppdb global vars
-* Remove the InitDB methods
-* Remove the {'Type'} vars and use ->isa instead
 * Add typechecking to all methods
 * Work on the docs
 

@@ -47,6 +47,8 @@
 package Math::Expr::OpperationDB;
 use strict;
 
+use Math::Expr;
+
 =head2 $db=new Math::Expr::OpperationDB;
 
   Creates a new db.
@@ -59,6 +61,18 @@ sub new {
 	$self->Load(shift);
 
 	$self;
+}
+
+sub InitDB {
+	my $self=shift;
+	my $a=$self->{'opps'};
+
+	foreach (keys %{$a}) {
+		if ($a->{$_}->{'simp'}) {
+			$a->{$_}->{'simp'}=Parse($a->{$_}->{'simp'});
+		}
+		$a->{$_}{'TypeReg'}=qr/^$_$/;
+	}
 }
 
 sub Load {
@@ -101,8 +115,8 @@ sub Find {
 	my ($self, $str) = @_;
 	my $opp;
 
-	foreach (keys %{$self->{'opps'}}) {
-		if ($str =~ /^$_$/) {$opp=$self->{'opps'}{$_}; last;}
+	foreach (values %{$self->{'opps'}}) {
+		if ($str =~ $_->{'TypeReg'}) {$opp=$_; last;}
 	}
 
 	$opp;

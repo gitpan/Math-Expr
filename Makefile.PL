@@ -6,6 +6,6 @@ use ExtUtils::MakeMaker;
 WriteMakefile(
         'NAME' => 'Math::Expr',
         'DISTNAME' => 'Math-Expr',
-        'VERSION' => '0.3',
+        'VERSION' => '0.4',
         'dist'   => {COMPRESS=>'gzip', SUFFIX=>'gz'}
 );

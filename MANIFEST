@@ -11,6 +11,7 @@ Expr/Rule.pm
 Expr/OpperationDB.pm
 Expr/FormulaDB.pm
 Expr/TypeDB.pm
+Expr/Node.pm
 db/Types
 db/Opperations/Realtal
 db/Formulas/Allmännt

@@ -17,18 +17,16 @@
 #  along with this program; if not, write to the Free Software
 #  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
-use strict;
-
 =head1 NAME
 
   Math::Expr - Parses mathematical expressions
 
 =head1 SYNOPSIS
 
-  require Math::Expr;
+  use Math::Expr;
   
-  $p=new Math::Expr;
-  $e=$p->Parse("a+4*b-d/log(s)+f(d,e)");
+  SetOppDB(new Math::Expr::OpperationDB('<DBFileName>'));
+  $e=Parse("a+4*b-d/log(s)+f(d,e)");
 
 =head1 DESCRIPTION
 
@@ -62,30 +60,24 @@ use strict;
 =cut
 
 package Math::Expr;
-  
+use strict;
+
+require Exporter;
+use vars qw (@ISA @EXPORT_OK @EXPORT $Pri $OppDB);
+
+@ISA = qw (Exporter);
+@EXPORT_OK = qw($Pri $OppDB);
+@EXPORT = qw(Parse Priority SetOppDB);
+
 require Math::Expr::Opp;
 require Math::Expr::Var;
 require Math::Expr::Num;
 require Math::Expr::VarSet;
 require Math::Expr::OpperationDB;
 
-=head2 $p = new  Math::Expr
+$Pri={'^'=>50, '/'=>40, '*'=>30, '-'=>20, '+'=>10, '='=>0};
 
-This is the constructor, it creates an object which later can be used
-to parse the strings.
-
-=cut
-
-sub new {
-	my $class = shift;
-	my $self = bless { }, $class;
-	$self->SetOppDB(shift);
-	$self->Priority({'^'=>50, '/'=>40, '*'=>30, '-'=>20, '+'=>10, '='=>0});
-	$self->InitDB;
-	$self;
-}
-
-=head2 $e=$p->Parse($str)
+=head2 $e=Parse($str)
 
 This will parse the string $str and return an expression tree, in the 
 form of a Math::Expr::Opp object (or in simple cases only a 
@@ -94,19 +86,28 @@ Math::Expr::Var or Math::Expr::Num object).
 =cut
 
 
+=head2 $p = new  Math::Expr
+
+This is the constructor, it creates an object which later can be used
+to parse the strings.
+
+=cut
+
 sub Parse {
-	my ($self, $str) = @_;
+	my ($str) = @_;
+	my $self=bless {};
+
+	if (ref $str) {warn "Bad param str: $str"}
 
   $str=~ s/\s*//g;
   $self->{'Str'}=$str;
 
   $self->NextToken;
   my $e=$self->Expr;
-  $e->SetPri($self->{'Pri'});
 	$e;
 }
 
-=head2   $p->Priority({'^'=>50, '/'=>40, '*'=>30, '-'=>20, '+'=>10})
+=head2   Priority({'^'=>50, '/'=>40, '*'=>30, '-'=>20, '+'=>10})
 
 This will set the priority of ALL the operands (there is currently no 
 way to change only one of them). The priority decides what should be 
@@ -114,36 +115,31 @@ constructed if several operands is listed without delimiters. Eg if
 a+b*c should be treated as (a+b)*c or a+(b*c). (Default is listed in 
 header).
 
+The priority is global for all parsers and all expretions, so 
+changing it here will change it for all parsers and parsed objects. 
+The idea is to use this method to initiate the system before using it.
+
 =cut
 
 sub Priority {
-	my ($self, $p) = @_;
-	$self->{'Pri'}=$p;
+	my ($p) = @_;
+	$Pri=$p;
 }
 
-=head2 $p->SetOppDB($db)
+=head2 SetOppDB($db)
 
 Sets the OpperationDB to be used to $db. See L<Math::Expr::OpperationDB> 
-for more info. This will be passed down to all objects returned by the parser
-aswell.
+for more info. 
+
+This is a global variable afecting all parsers and all parsed structures.
 
 =cut
 
 sub SetOppDB {
-	my ($self, $oppdb) = @_;
+	my ($db) = @_;
 
-	$self->{'oppdb'}=$oppdb;
-}
-
-sub InitDB {
-	my $self = shift;
-	my $a=$self->{'oppdb'}{'opps'};
-
-	foreach (keys %{$a}) {
-		if ($a->{$_}->{'simp'}) {
-			$a->{$_}->{'simp'}=$self->Parse($a->{$_}->{'simp'});
-		}
-	}
+	$OppDB=	$db;
+	$OppDB->InitDB;
 }
 
 sub NextToken {
@@ -178,7 +174,7 @@ sub Expr {
 	my $n;
 
 	if ($self->{'Token'} eq '-') {
-		$e= new Math::Expr::Opp('neg',$self->{'oppdb'});
+		$e= new Math::Expr::Opp('neg');
 		$self->NextToken;
 		$e->SetOpp(0,$self->Elem);
 	} else {
@@ -186,12 +182,12 @@ sub Expr {
 	}
 
   while ($self->{'TType'} eq 'OpChr'){
-	  $n= new Math::Expr::Opp($self->{'Token'},$self->{'oppdb'});
+	  $n= new Math::Expr::Opp($self->{'Token'});
 
-		if ($e->{'Type'} eq 'Opp' &&
-				defined $self->{'Pri'}{$e->{'Val'}} && 				
-				defined $self->{'Pri'}{$n->{'Val'}} &&
-				$self->{'Pri'}{$e->{'Val'}} < $self->{'Pri'}{$n->{'Val'}} &&
+		if ($e->isa('Math::Expr::Opp') &&
+				defined $Pri->{$e->{'Val'}} && 				
+				defined $Pri->{$n->{'Val'}} &&
+				$Pri->{$e->{'Val'}} < $Pri->{$n->{'Val'}} &&
 				$e->Breakable
 			 ) {
 			$n->SetOpp(0,$e->Opp(1));
@@ -217,10 +213,10 @@ sub FixPri {
 	my  $a=$n->Opp(0);
 	my  $t;
 
-	if ($a->{'Type'} eq 'Opp' &&
-			defined $self->{'Pri'}{$n->{'Val'}} &&
-			defined $self->{'Pri'}{$a->{'Val'}} &&
-			$self->{'Pri'}{$a->{'Val'}} < $self->{'Pri'}{$n->{'Val'}} &&
+	if ($a->isa('Math::Expr::Opp') &&
+			defined $Pri->{$n->{'Val'}} &&
+			defined $Pri->{$a->{'Val'}} &&
+			$Pri->{$a->{'Val'}} < $Pri->{$n->{'Val'}} &&
 			$a->Breakable
 		 ) {
 		$n->SetOpp(0,$a->Opp(1));
@@ -260,7 +256,7 @@ sub Elem {
 		return $n;
 	}
 	elsif ($self->{'TType'} eq "Func") {
-		my $n=new Math::Expr::Opp($self->{'Token'},$self->{'oppdb'});
+		my $n=new Math::Expr::Opp($self->{'Token'});
 		my $o=0;
 		do {
 			$self->NextToken;

@@ -43,7 +43,12 @@
 =cut
 
 package Math::Expr::Var;
+require Math::Expr::Node;
 use strict;
+
+use Math::Expr::Node;
+use vars qw(@ISA);
+@ISA = qw(Math::Expr::Node);
 
 =head2 $n=new Math::Expr::Var($name)
 
@@ -55,7 +60,6 @@ sub new {
 	my($class, $val) = @_;
 	my $self = bless { }, $class;
 
-	$self->{'Type'}="Var";
 	($self->{'Val'},$self->{'VarType'})=split(/:/,$val);
   if (!$self->{'VarType'}) {$self->{'VarType'}="Real";}
 	$self;
@@ -78,13 +82,6 @@ sub toText {
 	$self->{'Val'};
 }
 
-sub Set {
-  my ($self, $pos, $val)=@_;
-  
-  if ($pos ne "") {warn "Bad pos: $pos"}
-  $val;
-}
-
 =head2 $n->strtype
 
   Returns the type of the variable.
@@ -105,24 +102,6 @@ sub strtype {
 
 sub BaseType {shift->strtype(@_)}
 
-=head2 $n->Simplify
-
-  Needed to be compatible with the other elements in the structure. 
-  Currently this does nothing, but we might have variable types in the 
-  future that might need simplifications...
-
-=cut
-
-sub Simplify {}
-
-=head2 $n->Breakable
-
-  Needed to be compatible with the other elements in the structure.
-
-=cut
-
-sub Breakable {}
-
 =head2 $n->Match
 
   Mathces a rule expression with the variable, and returns an array of 
@@ -130,19 +109,6 @@ sub Breakable {}
   types match.
 
 =cut
-
-sub Match {
-  my ($self, $rule,$pos,$pri) = @_;
-	my $mset=new Math::Expr::MatchSet;
-
-	if (!defined $pri) {$pri=new Math::Expr::VarSet}
-
-	$mset->Set($pos, $pri);
-	if (!$self->SubMatch($rule, $mset)) {
-		$mset->del($pos);
-	}
-	$mset;
-}
 
 =head2 $n->SubMatch
 
@@ -153,27 +119,21 @@ sub Match {
 sub SubMatch {
 	my ($self, $rule, $mset) = @_;
 
-	# Parameter sanity checks
-	$rule->isa("Math::Expr::Opp") || 
-	$rule->isa("Math::Expr::Num") || 
-	$rule->isa("Math::Expr::Var") || warn "Bad param rule: $rule";
-	$mset->isa("Math::Expr::MatchSet") || warn "Bad param mset: $mset";
-
-  if ($rule->{'Type'} eq "Var" && $self->BaseType eq $rule->BaseType) {
+  if ($rule->isa('Math::Expr::Var') && $self->BaseType eq $rule->BaseType) {
 		$mset->SetAll($rule->{'Val'},$self);
 		return 1;
 	}
 	return 0;
 }
 
-=head2 $n->Subst($vars)
+=head2 $n->Subs($vars)
 
   Returns this variables vaule taken from $vars or a new copy of itselfe 
   if it does not excist.
 
 =cut
 
-sub Subs {
+sub _Subs {
 	my ($self, $vars) = @_;
 	my $v=$vars->Get($self->{'Val'});
 
@@ -187,19 +147,17 @@ Returns a new copy of itself.
 
 =cut
 
-sub Copy {
+sub _Copy {
 	my $self= shift;
 
 	new Math::Expr::Var($self->{'Val'}.":".$self->{'VarType'});
 }
 
-sub toMathML {
+sub _toMathML {
 	my $self = shift;
 
   "<mi>".$self->{'Val'}."</mi>";
 }
-
-sub SetPri() {}
 
 =head1 AUTHOR
 
