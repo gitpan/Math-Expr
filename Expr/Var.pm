@@ -73,6 +73,18 @@ sub tostr {
   $self->{'Val'}. ":" . $self->{'VarType'};
 }
 
+sub toText {
+	my $self = shift;
+	$self->{'Val'};
+}
+
+sub Set {
+  my ($self, $pos, $val)=@_;
+  
+  if ($pos ne "") {warn "Bad pos: $pos"}
+  $val;
+}
+
 =head2 $n->strtype
 
   Returns the type of the variable.
@@ -120,15 +132,16 @@ sub Breakable {}
 =cut
 
 sub Match {
-  my ($self, $rule) = @_;
-  my @matches;
-	my $match=new Math::Expr::VarSet;
+  my ($self, $rule,$pos,$pri) = @_;
+	my $mset=new Math::Expr::MatchSet;
 
-	if ($self->SubMatch($rule, $match)) {
-    push @matches,$match;
-  }
+	if (!defined $pri) {$pri=new Math::Expr::VarSet}
 
-  @matches;
+	$mset->Set($pos, $pri);
+	if (!$self->SubMatch($rule, $mset)) {
+		$mset->del($pos);
+	}
+	$mset;
 }
 
 =head2 $n->SubMatch
@@ -138,10 +151,16 @@ sub Match {
 =cut
 
 sub SubMatch {
-	my ($self, $rule, $match) = @_;
+	my ($self, $rule, $mset) = @_;
 
-  if ($self->BaseType eq $rule->BaseType) {
-		$match->Set($rule->{'Val'},$self);
+	# Parameter sanity checks
+	$rule->isa("Math::Expr::Opp") || 
+	$rule->isa("Math::Expr::Num") || 
+	$rule->isa("Math::Expr::Var") || warn "Bad param rule: $rule";
+	$mset->isa("Math::Expr::MatchSet") || warn "Bad param mset: $mset";
+
+  if ($rule->{'Type'} eq "Var" && $self->BaseType eq $rule->BaseType) {
+		$mset->SetAll($rule->{'Val'},$self);
 		return 1;
 	}
 	return 0;
@@ -173,6 +192,14 @@ sub Copy {
 
 	new Math::Expr::Var($self->{'Val'}.":".$self->{'VarType'});
 }
+
+sub toMathML {
+	my $self = shift;
+
+  "<mi>".$self->{'Val'}."</mi>";
+}
+
+sub SetPri() {}
 
 =head1 AUTHOR
 

@@ -49,9 +49,9 @@ use strict;
     <Function> = [a-zA-Z][a-zA-Z0-9]*\(<Expr>(,<Expr>)*\)
     <OpChr>    = [^a-zA-Z0-9\(\)\,\.\:]+
 
-  If the - sign is present at the beginning of an <Expr> it is parsed 
-  in the exact same structure as 0<Expr>. That is to allow 
-  constructions like "-a*b" or "b+3*(-7)".
+  If the - sign is present at the beginning of an <Expr> Then a neg()
+	function is placed around it. That is to allow constructions like 
+  "-a*b" or "b+3*(-7)".
 
   A variable consists of two parts separated by a ':'-char. The first 
   part is the variable name, and the second optional part is its type. 
@@ -79,7 +79,9 @@ to parse the strings.
 sub new {
 	my $class = shift;
 	my $self = bless { }, $class;
-	$self->Priority({'^'=>50, '/'=>40, '*'=>30, '-'=>20, '+'=>10});
+	$self->SetOppDB(shift);
+	$self->Priority({'^'=>50, '/'=>40, '*'=>30, '-'=>20, '+'=>10, '='=>0});
+	$self->InitDB;
 	$self;
 }
 
@@ -96,10 +98,12 @@ sub Parse {
 	my ($self, $str) = @_;
 
   $str=~ s/\s*//g;
-	if ($str =~ /^\-/) {$str="0$str";}
   $self->{'Str'}=$str;
+
   $self->NextToken;
-  $self->Expr;
+  my $e=$self->Expr;
+  $e->SetPri($self->{'Pri'});
+	$e;
 }
 
 =head2   $p->Priority({'^'=>50, '/'=>40, '*'=>30, '-'=>20, '+'=>10})
@@ -129,6 +133,17 @@ sub SetOppDB {
 	my ($self, $oppdb) = @_;
 
 	$self->{'oppdb'}=$oppdb;
+}
+
+sub InitDB {
+	my $self = shift;
+	my $a=$self->{'oppdb'}{'opps'};
+
+	foreach (keys %{$a}) {
+		if ($a->{$_}->{'simp'}) {
+			$a->{$_}->{'simp'}=$self->Parse($a->{$_}->{'simp'});
+		}
+	}
 }
 
 sub NextToken {
@@ -163,10 +178,9 @@ sub Expr {
 	my $n;
 
 	if ($self->{'Token'} eq '-') {
-		$e= new Math::Expr::Opp('-',$self->{'oppdb'});
-		$e->SetOpp(0,new Math::Expr::Num(0));
+		$e= new Math::Expr::Opp('neg',$self->{'oppdb'});
 		$self->NextToken;
-		$e->SetOpp(1,$self->Elem);
+		$e->SetOpp(0,$self->Elem);
 	} else {
 		$e=$self->Elem;
 	}
@@ -175,12 +189,16 @@ sub Expr {
 	  $n= new Math::Expr::Opp($self->{'Token'},$self->{'oppdb'});
 
 		if ($e->{'Type'} eq 'Opp' &&
+				defined $self->{'Pri'}{$e->{'Val'}} && 				
+				defined $self->{'Pri'}{$n->{'Val'}} &&
 				$self->{'Pri'}{$e->{'Val'}} < $self->{'Pri'}{$n->{'Val'}} &&
 				$e->Breakable
 			 ) {
 			$n->SetOpp(0,$e->Opp(1));
 			$self->NextToken;
 			$n->SetOpp(1,$self->Elem);
+			$n->Breakable(1);
+			$n=$self->FixPri($n);
 			$e->SetOpp(1,$n);
 		} else {
 			$n->SetOpp(0,$e);
@@ -192,6 +210,26 @@ sub Expr {
   } 
 	$e->Breakable(0);
 	return $e;
+}
+
+sub FixPri {
+	my ($self, $n)=@_;
+	my  $a=$n->Opp(0);
+	my  $t;
+
+	if ($a->{'Type'} eq 'Opp' &&
+			defined $self->{'Pri'}{$n->{'Val'}} &&
+			defined $self->{'Pri'}{$a->{'Val'}} &&
+			$self->{'Pri'}{$a->{'Val'}} < $self->{'Pri'}{$n->{'Val'}} &&
+			$a->Breakable
+		 ) {
+		$n->SetOpp(0,$a->Opp(1));
+		$n=$self->FixPri($n);
+		$a->SetOpp(1,$n);
+		$a;
+	} else {
+		$n;
+	}
 }
 
 sub Elem {
@@ -232,6 +270,7 @@ sub Elem {
 		if ($self->{'Token'} ne ")") {
 			$self->Bad;
 		}
+		$self->NextToken;
 		return $n
 	} else {
 		$self->Bad;

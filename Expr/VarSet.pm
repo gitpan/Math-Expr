@@ -49,7 +49,8 @@ sub new {bless {}, shift}
 
 =head2 $s->Set($var, $val)
 
-  Sets $var to $val.
+  Sets $var to $val. Returns 1 if the $var was already set to $val ore did 
+  not have a value previously, otherwise 0.
 
 =cut
 
@@ -57,9 +58,26 @@ sub Set {
 	my ($self, $var, $val) = @_;
 	my $ok=1;
 
-	if (defined $self->{'Vars'}{$var}) {$ok=0;}
+	# Parameter sanity checks
+	defined $var || warn "Bad param var: $var";
+	$val->isa("Math::Expr::Opp") ||
+	$val->isa("Math::Expr::Num") ||
+	$val->isa("Math::Expr::Var") || warn "Bad param val: $val";
+
+	if (defined $self->{'Vars'}{$var} && 
+			$self->{'Vars'}{$var}->tostr ne $val->tostr) {$ok=0;}
 	$self->{'Vars'}{$var}=$val;
 	$ok;
+}
+
+sub Copy {
+  my $self=shift;
+  my $n=new Math::Expr::VarSet;
+
+  foreach (keys %{$self->{'Vars'}}) {
+    $n->Set($_, $self->{'Vars'}{$_});
+  } 
+  $n;
 }
 
 =head2 $s->Insert($set)
@@ -72,6 +90,8 @@ sub Insert {
 	my ($self, $set) = @_;
 	my $ok=1;
 
+	# Parameter sanity checks
+	$set->isa("Math::Expr::VarSet") || warn "Bad param set: $set\n";
 
 	foreach (keys %{$set->{'Vars'}}) {
 		if (defined $self->{'Vars'}{$_}) {$ok=0;}

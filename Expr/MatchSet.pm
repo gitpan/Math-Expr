@@ -49,6 +49,35 @@ use strict;
 
 sub new {bless {}, shift}
 
+sub Copy {
+  my $self = shift;
+  my $n = new Math::Expr::MatchSet;
+
+  foreach (keys %{$self->{'Matches'}}) {
+    $n->Set($_, $self->{'Matches'}{$_}->Copy);
+  }
+  $n;
+}
+
+sub Clear {
+  my $self = shift;
+
+  foreach (keys %{$self->{'Matches'}}) {
+    delete $self->{'Matches'}{$_};
+  }
+}
+
+sub AddPos {
+  my ($self, $p) = @_;
+  my $t={};
+
+  foreach (keys %{$self->{'Matches'}}) {
+    $t->{$_.$p}=$self->{'Matches'}{$_};
+    delete $self->{'Matches'}{$_};
+  }
+  $self->{'Matches'}=$t;
+}
+
 =head2 $s->Set($pos, $match)
 
   Sets the match at $pos to $match.
@@ -66,6 +95,10 @@ sub Set {shift->Add(@_)}
 sub Add {
   my ($self, $pos, $vars) = @_;
 
+	# Parameter sanity checks
+	defined $pos || warn "Bad param pos: $pos";
+	$vars->isa("Math::Expr::VarSet") || warn "Bad param vars: $vars";
+
 	$self->{'Matches'}{$pos}=$vars;
 }
 
@@ -77,9 +110,54 @@ sub Add {
 
 sub Insert {
 	my ($self, $mset) = @_;
-	
+
+	# Parameter sanity checks
+	$mset->isa("Math::Expr::MatchSet") || warn "Bad param mset: $mset";
+
 	foreach (keys %{$mset->{'Matches'}}) {
+		if (defined $self->{'Matches'}{$_}) {warn "Overwriting previous settings";}
 		$self->{'Matches'}{$_}=$mset->{'Matches'}{$_}
+	}
+}
+
+sub del {
+	my ($self, $pos) = @_;
+
+	delete $self->{'Matches'}{$pos};
+}
+
+
+
+=head2 $s->SetAll($var, $obj)
+
+  Sets the variable $var to $obj in all mathces in this set, and removes 
+  all matches that already had a diffrent value for the variable $var.
+
+=cut
+
+sub SetAll {
+	my ($self, $var, $obj) = @_;
+	my $allgone=1;
+	
+
+	# Parameter sanity checks
+	defined $var || warn "Bad param var: $var\n";
+	$obj->isa("Math::Expr::Opp") ||
+	$obj->isa("Math::Expr::Num") ||
+	$obj->isa("Math::Expr::Var") || warn "Bad param obj: $obj\n";
+
+	foreach (keys %{$self->{'Matches'}}) {
+		if (!$self->{'Matches'}{$_}->Set($var,$obj)) {
+			delete $self->{'Matches'}{$_};
+		} else {
+			$allgone=0;
+		}
+	}
+
+	if ($allgone) {
+		return 0;
+	} else {
+		return 1;
 	}
 }
 

@@ -162,6 +162,26 @@ sub Simplify {
 
 	$op=$self->{'oppdb'}->Find($self->DBType);
 
+	# Type specific simplification rules
+	if ($op->{'simp'}) {
+		my $vs=new Math::Expr::VarSet;
+
+		for ($i=0; $i<=$#{$self->{'Opps'}}; $i++) {
+			$vs->Set(chr(97+$i), $self->{'Opps'}[$i]);
+		}
+#		print $vs->tostr  . "\n";
+
+		my $e=$op->{'simp'}->Copy;
+		$e=$e->Subs($vs);
+
+#		print $e->tostr  . "\n";
+
+		foreach (keys %{$e}) {
+			$self->{$_}=$e->{$_};
+		}
+		$op=$self->{'oppdb'}->Find($self->DBType);
+	}
+
 	# (a+b)+c => a+b+c
   if ($op->{'ass'}) {
 		my @nopp;
@@ -178,7 +198,7 @@ sub Simplify {
   }
 
 	# a+c+b => a+b+c
-  if ($op->{'kom'}) {
+  if ($op->{'com'}) {
 		my @nopp = sort {$a->tostr cmp $b->tostr} @{$self->{'Opps'}};
 		$self->{'Opps'}=\@nopp;
 	}
@@ -217,6 +237,17 @@ sub DBType {
   "$str)";
 }
 
+sub power {
+  my ($a, $b) = @_;
+  my $i;
+  my $sum=1;
+  
+  for ($i=0; $i<$b; $i++) {
+    $sum=$sum*$a
+  }
+  $sum;
+}
+
 =head2 $n->SubMatch($rules,$match)
 
   Tries to match $rules to this expretions and adds the substitutions 
@@ -226,26 +257,100 @@ sub DBType {
 =cut
 
 sub SubMatch {
-  my ($self, $rule, $match) = @_;
+  my ($self, $rule, $mset) = @_;
+	my $op=$self->{'oppdb'}->Find($self->DBType);
+
+	# Parameter sanity checks
+	$rule->isa("Math::Expr::Opp") || 
+	$rule->isa("Math::Expr::Num") || 
+  $rule->isa("Math::Expr::Var") || warn "Bad param rule: $rule";
+	$mset->isa("Math::Expr::MatchSet") || warn "Bad param mset: $mset";
+
 	if ($rule->{'Type'} eq 'Var' && 
 			$rule->BaseType eq $self->BaseType
 		 ) {
-		return $match->Set($rule->{'Val'},$self);
+		return $mset->SetAll($rule->{'Val'},$self);
   }
   elsif ($rule->{'Type'} eq 'Opp' &&
-				 $rule->{'Val'} eq $self->{'Val'} &&
-				 $#{$self->{'Opps'}} eq $#{$rule->{'Opps'}}
-				) {
-		my $ok=1;
-		my $i;
+				 $rule->{'Val'} eq $self->{'Val'}) {
+		if ($op->{'ass'}) {
+			if ($op->{'com'}) {
+				my @part;
+				my @pcnt;
+				my ($i,$j,$cnt);
+				my $p=$#{$rule->{'Opps'}} + 1;
+				my $s=$#{$self->{'Opps'}} + 1;
+				my $ps=power($p,$s) - 1;
+				my $resset = new Math::Expr::MatchSet;
+				my $m;
+				my $t;
+				my $a;
+				my $ok;
 
-		for ($i=0; $i<=$#{$self->{'Opps'}}; $i++) {
-			if (!$self->{'Opps'}[$i]->SubMatch($rule->{'Opps'}[$i],$match)) {
-				$ok=0;
-				last;
+				for ($i=1; $i<$ps; $i++) {
+					for ($j=0; $j<$p; $j++) {
+						$part[$j]=new Math::Expr::Opp($self->{'Val'},$self->{'oppdb'});
+						$pcnt[$j]=0;
+					}
+					$cnt=0;
+
+					$t=$i;
+					for ($j=0; $j<$s; $j++) {
+						$a= $t % $p;
+						$part[$a]->{'Opps'}[$pcnt[$a]]=$self->{'Opps'}[$cnt];
+						$pcnt[$a]++;
+						$cnt++;
+            $t=int($t/$p);
+					}
+
+          $a=1; 
+					for ($j=0; $j<$p; $j++) {
+#						print $part[$j]->tostr . "\t";
+            if (!defined $part[$j]->{'Opps'}[0]) {$a=0; last;}
+            if (!defined $part[$j]->{'Opps'}[1]) {
+              $part[$j]=$part[$j]->{'Opps'}[0];
+            }
+          }
+#					print "\n";
+
+          if ($a) {
+            $m=$mset->Copy;
+            $m->AddPos("($i)");
+#						print "m:\n" . $m->tostr . "\n";
+						$ok=1;
+  					for ($j=0; $j<$p; $j++) {
+							my $t=$part[$j]->SubMatch($rule->{'Opps'}[$j],$m);
+              if (!$t) {
+								$ok=0;
+							}
+            }
+            if ($ok) {$resset->Insert($m);}
+          }
+				}
+
+#				print "res:\n" . $resset->tostr . "\n";
+        
+        $mset->Clear;
+        $mset->Insert($resset);
+				return 1;
+			} else {
+        #FIXME: Handle ass only objs...
 			}
 		}
-		return $ok;
+		elsif ($#{$self->{'Opps'}} eq $#{$rule->{'Opps'}}) {
+			my $ok=1;
+			my $i;
+			
+			for ($i=0; $i<=$#{$self->{'Opps'}}; $i++) {
+				if (!$self->{'Opps'}[$i]->SubMatch($rule->{'Opps'}[$i],$mset)) {
+					$ok=0;
+					last;
+				}
+			}
+			return $ok;
+		} else {
+			return 0;
+		}
 	} else {
 		return 0;
 	}
@@ -260,43 +365,25 @@ sub SubMatch {
 =cut
 
 sub Match {
-  my ($self, $rule, $pos) = @_;
-	my $match=new Math::Expr::VarSet;
+  my ($self, $rule, $pos, $pre) = @_;
 	my $i;
-	my $op=$self->{'oppdb'}->Find($self->DBType);
 	my $mset = new Math::Expr::MatchSet;
+	my $op=$self->{'oppdb'}->Find($self->DBType);
 
 	if (!defined $pos) {$pos="";}
+	if (!defined $pre) {$pre=new Math::Expr::VarSet}
 
-	if ($self->SubMatch($rule, $match)) {
-		$mset->Add($pos,$match);
+	$mset->Set($pos, $pre->Copy);
+	if (!$self->SubMatch($rule, $mset)) {
+		$mset->del($pos);
 	}
 
 	if ($pos ne "") {$pos .=","}
-	for ($i=0; $i<=$#{$self->{'Opps'}}; $i++) {
-		$mset->Insert($self->{'Opps'}[$i]->Match($rule, "$pos$i"));
-	}
 
-	# Can only handle binary opps for now
-#	my ($j,$k);
-#	if ($op->{'ass'} && $#{$rule->{'Opps'}} == 1 && 
-#			$rule->{'Val'} eq $self->{'Val'}) {
-#		for ($i=0; $i<=$#{$self->{'Opps'}}; $i++) {
-#			for ($j=$i; $j>=0; $j--) {
-#				for ($k=$i+1; $k<=$#{$self->{'Opps'}}; $k++) {
-#					my $match = new Math::Expr::MatchSet;
-#					print "$j $i $k\n";
-#					if ($self->SubOpp($i,$j)->SubMatch($rule->{'Opps'}[0],$match) &&
-#							$self->SubOpp($i+1,$k)->SubMatch($rule->{'Opps'}[1],$match)) {
-#						# FIXME: Has to remove more objs than $i!!
-#						# FIXME: MIght get duplicates...
-#						print "hej\n";
-#						$mset->Add("$pos$i", $match);
-#					}
-#				}
-#			}
-#		}
-#	}
+	for ($i=0; $i<=$#{$self->{'Opps'}}; $i++) {
+		my $m=$self->SubExpr($i)->Match($rule, "$pos$i", $pre->Copy);
+		$mset->Insert($m);
+	}
 
 	$mset;
 }
@@ -323,7 +410,8 @@ sub SubOpp {
 sub Subs {
 	my ($self, $vars) = @_;
 	my $i;
-	my $n = new Math::Expr::Opp($self->{'Val'},$self->{'db'});
+	my $n = new Math::Expr::Opp($self->{'Val'},$self->{'oppdb'});
+	$n->SetPri($self->{'Pri'});
 
   for ($i=0; $i<=$#{$self->{'Opps'}}; $i++) {
 		$n->{'Opps'}[$i]=$self->{'Opps'}[$i]->Subs($vars);
@@ -345,6 +433,7 @@ sub Copy {
   for ($i=0; $i<=$#{$self->{'Opps'}}; $i++) {
 		$n->{'Opps'}[$i]=$self->{'Opps'}[$i]->Copy;
 	}
+	$n->SetPri($self->{'Pri'});
 	$n;
 }
 
@@ -375,9 +464,38 @@ sub Find {
   my ($self, $pos) = @_;
 
   if ($pos =~ s/^(\d+),?//) {
-    return $self->{'Opps'}[$1]->Find($pos);
+		return $self->SubExpr($1)->Find($pos);
   } else {
     return $self;
+  }
+}
+
+sub SubExpr {
+  my ($self, $pos, $rest) = @_;
+	my $op=$self->{'oppdb'}->Find($self->DBType);
+
+	if ($op->{'ass'} && $op->{'com'}) {
+		my ($part, $j);
+		my $cnt=0;
+    my $rcnt=0;
+			
+    $part=new Math::Expr::Opp($self->{'Val'},$self->{'oppdb'});
+
+		for($j=0; $j<=$#{$self->{'Opps'}}; $j++) {
+		  if ($j!=$pos) {
+				$part->{'Opps'}[$cnt]=$self->{'Opps'}[$j];
+				$cnt++;
+			}
+      elsif(ref $rest) {
+        $rest->{'Opps'}[$rcnt]=$self->{'Opps'}[$j];
+        $rcnt++;
+      }
+		}
+
+    if (!defined $part->{'Opps'}[1]) {$part=$part->{'Opps'}[0];}
+    return $part;
+  } else {
+    return $self->{'Opps'}[$pos];
   }
 }
 
@@ -389,18 +507,111 @@ sub Find {
 
 sub Set {
   my ($self, $pos, $val) = @_;
+	my $op=$self->{'oppdb'}->Find($self->DBType);
+	
+	$pos =~ s/\(\d+\)//g;
 
-  if ($pos =~ s/^(\d+),//) {
-    $self->{'Opps'}[$1]->Set($pos,$val);
+	if ($pos eq "") {
+		return $val;
+	} else {
+		$pos =~ s/^(\d+),?//;
+		my $i=$1;
+
+		if ($op->{'ass'} && $op->{'com'}) {
+			my $rest=new Math::Expr::Opp($self->{'Val'},$self->{'oppdb'});
+	    my $part=$self->SubExpr($i, $rest)->Set($pos,$val);
+			my $n=new Math::Expr::Opp($self->{'Val'}, $self->{'oppdb'});
+
+			$n->SetPri($self->{'Pri'});
+			$part->SetPri($self->{'Pri'});
+			$rest->SetPri($self->{'Pri'});
+
+			if (!defined $rest->{'Opps'}[1]) {$rest=$rest->{'Opps'}[0];}
+
+			$n->{'Opps'}[0]=$rest;
+			$n->{'Opps'}[1]=$part;
+			return $n;
+		} else {
+			$self->{'Opps'}[$i]=$self->{'Opps'}[$i]->Set($pos,$val);
+		}
     return $self;
-  } else {
-    if ($pos eq "") {
-      return $val;
-    } else {
-      $self->{'Opps'}[$pos]=$val;
-      return $self;
-    }
-  }
+	}
+}
+
+sub toMathML {
+	my $self = shift;
+	my @p;
+	my $i;
+	my $op =	$self->{'oppdb'}->Find($self->DBType);
+
+  for ($i=0; $i<=$#{$self->{'Opps'}}; $i++) {
+		$p[$i]=$self->{'Opps'}[$i]->toMathML;
+		if (!defined $op->{'noparammathml'} || !eval($op->{'noparammathml'})) {
+			if ($self->{'Opps'}[$i]{'Type'} eq 'Opp') {
+				if (!$op->{'ass'} || $self->{'Opps'}[$i]{'Val'} ne $self->{'Val'}) {
+					if (defined $self->{'Pri'}{$self->{'Val'}} &&
+							defined $self->{'Pri'}{$self->{'Opps'}[$i]{'Val'}}) {
+						if ($self->{'Pri'}{$self->{'Val'}} >= 
+								$self->{'Pri'}{$self->{'Opps'}[$i]{'Val'}}) {
+							$p[$i]='<mrow><mo fence="true">(</mo>'.$p[$i].
+								'<mo fence="true">)</mo></mrow>';
+						}
+					}
+				}
+			}
+		}
+	}	
+
+	if (defined $op->{'prmathml'}) {
+		eval($op->{'prmathml'});
+	} else {
+		if ($self->{'Val'} =~ /^[^a-zA-Z0-9\(\)\,\.\:]+$/) {
+			 "<mrow>".join ("<mo>".$self->{'Val'}."</mo>", @p)."</mrow>";
+		} else {
+			'<mrow><mi fontstyle="normal">'.$self->{'Val'}.'</mi>'.
+				'<mo fence="true">(</mo>'.join (", ", @p) . "".
+				'<mo fence="true">)</mo></mrow>'
+		}
+	}
+}
+
+sub toText {
+	my $self = shift;
+	my @p;
+	my $i;
+	my $op =	$self->{'oppdb'}->Find($self->DBType);
+
+#	print $self->{'oppdb'} . ", " . $self->{'Pri'} . "\n";
+
+  for ($i=0; $i<=$#{$self->{'Opps'}}; $i++) {
+		$p[$i]=$self->{'Opps'}[$i]->toText;
+		if ($self->{'Opps'}[$i]{'Type'} eq 'Opp') {
+			if (!$op->{'ass'} || $self->{'Opps'}[$i]{'Val'} ne $self->{'Val'}) {
+				if (defined $self->{'Pri'}{$self->{'Val'}} &&
+						defined $self->{'Pri'}{$self->{'Opps'}[$i]{'Val'}}) {
+					if ($self->{'Pri'}{$self->{'Val'}} >= 
+							$self->{'Pri'}{$self->{'Opps'}[$i]{'Val'}}) {
+						$p[$i]='('.$p[$i].')';
+					}
+				}
+			}
+		}
+	}
+
+  if ($self->{'Val'} =~ /^[^a-zA-Z0-9\(\)\,\.\:]+$/) {
+		join ($self->{'Val'}, @p);
+	} else {
+		$self->{'Val'}.'('.join (", ", @p).')'
+	}
+}
+
+sub SetPri {
+	my ($self, $pri) = @_;
+
+	$self->{'Pri'}=$pri;
+	foreach (@{$self->{'Opps'}}) {
+		$_->SetPri($pri);
+	}
 }
 
 =head1 AUTHOR

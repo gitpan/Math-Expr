@@ -70,6 +70,8 @@ sub tostr {
   $self->{'Val'};
 }
 
+sub toText {shift->tostr}
+
 sub strtype {
   "Real";
 }
@@ -77,6 +79,67 @@ sub strtype {
 sub BaseType {shift->strtype(@_)}
 
 sub Simplify {}
+
+sub SetPri {}
+
+sub Subs {shift;}
+
+sub Breakable{}
+
+sub toMathML {
+  my $self = shift;
+  "<mn>".$self->{'Val'}."</mn>";
+}
+
+sub Set {
+  my ($self, $pos, $val)=@_;
+  
+  if ($pos ne "") {warn "Bad pos: $pos"}
+  $val;
+}
+
+
+sub Match {
+  my ($self, $rule,$pos,$pri) = @_;
+	my $mset=new Math::Expr::MatchSet;
+
+	if (!defined $pri) {$pri=new Math::Expr::VarSet}
+
+	$mset->Set($pos, $pri);
+	if (!$self->SubMatch($rule, $mset)) {
+		$mset->del($pos);
+	}
+	$mset;
+}
+
+sub SubMatch {
+	my ($self, $rule, $mset) = @_;
+
+	# Parameter sanity checks
+	$rule->isa("Math::Expr::Opp") || 
+	$rule->isa("Math::Expr::Num") || 
+	$rule->isa("Math::Expr::Var") || warn "Bad param rule: $rule";
+	$mset->isa("Math::Expr::MatchSet") || warn "Bad param mset: $mset";
+
+  if ($rule->{'Type'} eq "Num" && $self->BaseType eq $rule->BaseType) {
+		$mset->SetAll($rule->{'Val'},$self);
+		return 1;
+	}
+	return 0;
+}
+
+=head2 $n->Copy
+
+Returns a new copy of itself.
+
+=cut
+
+sub Copy {
+	my $self= shift;
+
+	new Math::Expr::Num($self->{'Val'});
+}
+
 
 =head1 AUTHOR
 
