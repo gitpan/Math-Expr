@@ -1,0 +1,10 @@
+MANIFEST
+Makefile.PL
+COPYING
+Expr.pm
+Expr/Opp.pm
+Expr/Num.pm
+Expr/Var.pm
+Expr/MatchSet.pm
+Expr/VarSet.pm
+README
